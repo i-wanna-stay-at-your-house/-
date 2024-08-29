@@ -4,9 +4,12 @@ import json
 import os
 import yaml
 import pandas as pd
+from rich.console import Console
+
+console = Console()
 
 # 엑셀 파일 경로
-file_path = r'C:\Users\user\Desktop\경희대\학부연구생\주담대dataset.xlsx'
+input = r'C:\Users\user\Desktop\경희대\학부연구생\주담대dataset.xlsx'
 
 # 특정 시트(input_sample)만
 # CSV 파일 읽기
@@ -74,14 +77,14 @@ def classify_article(title, augment_content):
     """
 
     # 프롬프트 구성
-    p1 = f"{title}\n\n{augment_content}" 
+    p1 = f"{title}\n\n{augment_content}\n" 
     
     p2 = f"위 기사는 다음 카테고리 중 어디에 해당되는가?:\n" \
          "금리상승\n금리하락\n금리유지\n대출실시/재개\n대출제한/중단\n대출금액증가\n대출금액감소\n" \
          "주택가격상승\n주택가격하락\n연체율 상승\n연체율 하락\n주택거래증가\n주택거래감소\n" \
          "경기침체\n경제활성화\n대출조건강화\n대출조건완화\n대출상환가속\n금리비교서비스\n정책\n기타\n\n" 
     
-    p3 = f"""결과를 다음과 같은 형식으로 제시하라. "value1"에 예측 가능한 값을 배치하고 가장 확실한 2개의 값만을 제시하라. 선정 이유는 "value2"에 제시하라.\n{{"category1":"value1", "reason1":"value2","category2":"value2"}}"""
+    p3 = f"""결과를 다음과 같은 형식으로 제시하라. "value1"에 예측 가능한 값을 배치하고 가장 확실한 2개의 값만을 제시하라. 선정 이유는 "value2", "value3"에 제시하라.\n{{"category1":"value1", "reason1":"value2","category2":"value2", "reason2":"value3"}}"""
     
     prompt = p1 + p2 + p3
          
@@ -98,37 +101,60 @@ def classify_article(title, augment_content):
     result_text = completion.choices[0].message.content.strip()
 
     try:
-        # JSON 형식으로 파싱
         result_json = json.loads(result_text)
-        print(json.dumps(result_json, indent=4, ensure_ascii=False))
+        return result_json
     except json.JSONDecodeError:
         print("Error: The model's response could not be parsed as JSON.")
         print(result_text)
+        return {}  # 빈 사전 반환
 
 #cli 입력 부분
 @click.command()
-@click.option('--file_path', prompt='Excel file path', help='The path to the Excel file.')
-@click.option('--sheet_name', prompt='Sheet name', help='The name of the sheet to access.')
+@click.option('--input', help='The path to the Excel file.', required=False)
+@click.option('--sheet_name', help='The name of the sheet to access.', required=False)
+# @click.option('--indir', help='The path to the Excel file.(indir precede input)', required=False)
+# @click.option('--outdir', help='The path to the Result file.', required=False)
+# @click.option('--preference', help='Option file(.yaml).', required=False)
+# @click.option('--help', help='Execute help file link to brouser.', required=False)
 
-def main(file_path, sheet_name):
+def main(input, sheet_name):
     
     try:
         # Excel 파일에서 특정 시트 읽기
-        df = pd.read_excel(file_path, sheet_name=sheet_name, engine='openpyxl')
-        
+        df = pd.read_excel(input, sheet_name=sheet_name, engine='openpyxl')
+    
         # 데이터 출력 (예: 첫 5개 행)
-        print(df.head())
+        # print(df.head())
     except Exception as e:
-        print(f"An error occurred: {e}")
+        console.print(f"An error occurred: {e}", style = "bold red")
+    
+    results = []
     
     for num in range(len(df["UUID"])):
         keywords = extract_keywords(df["Content"][num])
-        print("Extracted Keywords:", keywords)
+        console.print(f"Extracted Keywords: {keywords}", style = "bold underline magenta")
 
         augmented_article = augment_article(df["Title"][num], df["Content"][num], keywords)
-        print("Augmented Article:\n", augmented_article)
+        console.print(f"Augmented Article: \n{augmented_article}", style="bold blue", justify=True)
 
         classify_article(df["Title"][num], augmented_article)
 
+        classification = classify_article(df["Title"][num], augmented_article)
+        
+        
+        results.append({
+            "UUID": df["UUID"][num],
+            **classification #dict 언패킹
+        })
+    
+        # 새로운 데이터프레임으로 변환
+        output_df = pd.DataFrame(results)
+        
+        # 결과를 새로운 엑셀 파일로 저장
+        output_df.to_excel('result_category.xlsx', index=False, sheet_name='output_data')
+
+        console.print("Data saved to output_augmented_data.xlsx", style="bold green")
+        
 if __name__ == '__main__':
     main()
+    
